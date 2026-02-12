@@ -10,11 +10,12 @@ homepage = "https://crates.io/crates/pcf"
 documentation = "https://docs.rs/pcf"
 readme = "README.md"
 keywords = ["markup", "config", "format", "parser", "serde"]
-categories = ["parser-implementations", "text-processing", "config", "no-std", "no-std::no-alloc"]
+categories = ["parser-implementations", "text-processing", "config", "no-std"]
 
 [features]
 default = ["serde", "std"]
-serde = "serde"
+serde = ["dep:serde"]
+std = []
 
 [dependencies]
 serde = { version = "1.0.228", optional = true }
