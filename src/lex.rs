@@ -17,6 +17,15 @@ impl Location {
     pub fn new(line: usize, col: usize) -> Self {
         Self { line, col }
     }
+
+    pub fn new_line(&mut self) {
+        self.line += 1;
+        self.new_col();
+    }
+
+    pub fn new_col(&mut self) {
+        self.col += 1;
+    }
 }
 
 #[derive(Default, Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
@@ -75,20 +84,20 @@ impl<'a> Source<'a> {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ErrorKind {
+    MalformedNumber,
     UnrecognizedToken,
     UnterminatedString,
-    UnrecognizedScalar,
 }
 
 impl fmt::Display for ErrorKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "{}",
+            "encountered {}",
             match self {
-                Self::UnrecognizedToken => "encountered unrecognized token",
-                Self::UnterminatedString => "encountered unterminated string",
-                Self::UnrecognizedScalar => "encountered unrecognized top-level scalar",
+                Self::MalformedNumber => "malformed number",
+                Self::UnrecognizedToken => "unrecognized token",
+                Self::UnterminatedString => "unterminated string",
             }
         )
     }
@@ -115,10 +124,22 @@ impl<'a> Error<'a> {
 
 pub type Result<'a, T> = core::result::Result<T, Error<'a>>;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LexemeKind {}
+#[derive(Debug, Clone, PartialEq)]
+pub enum LexemeKind {
+    String(String),
+    Ident(String),
+    Integer(i64),
+    Float(f64),
+    Bool(bool),
+    LBrack,
+    RBrack,
+    LBrace,
+    RBrace,
+    Equal,
+    Comma,
+}
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Lexeme {
     pub kind: LexemeKind,
     pub span: Span,
@@ -132,6 +153,129 @@ impl Lexeme {
 
 pub type LexemeStream = VecDeque<Lexeme>;
 
-pub fn lex<'a>(src: Source<'a>) -> Result<LexemeStream> {
-    todo!()
+pub fn is_identifier(ch: char) -> bool {
+    ch.is_alphanumeric() || ch == '_'
+}
+
+pub fn is_numeric_or_symbol(ch: char) -> bool {
+    ch.is_numeric() || ch == '-' || ch == '+' || ch == '.'
+}
+
+pub fn lex<'a>(src: Source<'a>) -> Result<'a, LexemeStream> {
+    let mut lexemes = LexemeStream::default();
+    let mut span = Span::default();
+    let mut chars = src.chars();
+
+    while let Some(tok) = chars.next() {
+        span.begin = span.end;
+        span.end.new_col();
+
+        lexemes.push_front(Lexeme::new(
+            match tok {
+                '=' => LexemeKind::Equal,
+                ',' => LexemeKind::Comma,
+                '[' => LexemeKind::LBrack,
+                ']' => LexemeKind::RBrack,
+                '{' => LexemeKind::LBrace,
+                '}' => LexemeKind::RBrace,
+                '"' => {
+                    let mut content = String::default();
+                    let mut closed = false;
+
+                    for chr in chars.by_ref() {
+                        span.end.new_col();
+
+                        if chr == '"' {
+                            closed = true;
+                            break;
+                        }
+
+                        content.push(chr);
+                    }
+
+                    if !closed {
+                        return Err(Error::new(ErrorKind::UnterminatedString, span, src));
+                    }
+
+                    LexemeKind::String(content)
+                }
+                _ if is_numeric_or_symbol(tok) => {
+                    let mut content = String::default();
+                    content.push(tok);
+
+                    let mut dot = tok == '.';
+
+                    while let Some(&chr) = chars.peek() {
+                        if chr == '.' {
+                            if dot {
+                                return Err(Error::new(ErrorKind::MalformedNumber, span, src));
+                            }
+
+                            dot = true;
+                        }
+
+                        if !chr.is_numeric() && chr != '.' {
+                            break;
+                        }
+
+                        chars.next();
+                        content.push(chr);
+                        span.end.col += 1;
+                    }
+
+                    let err = Error::new(ErrorKind::MalformedNumber, span, src.clone());
+
+                    if dot {
+                        LexemeKind::Float(content.parse::<f64>().map_err(|_| err)?)
+                    } else {
+                        LexemeKind::Integer(content.parse::<i64>().map_err(|_| err)?)
+                    }
+                }
+                _ if is_identifier(tok) => {
+                    let mut content = String::default();
+                    content.push(tok);
+
+                    while let Some(&chr) = chars.peek() {
+                        if !is_identifier(chr) {
+                            break;
+                        }
+
+                        chars.next();
+                        span.end.new_col();
+                        content.push(chr);
+                    }
+
+                    match content.as_str() {
+                        "true" => LexemeKind::Bool(true),
+                        "false" => LexemeKind::Bool(false),
+                        _ => LexemeKind::Ident(content),
+                    }
+                }
+                '#' => {
+                    for chr in chars.by_ref() {
+                        if chr == '\n' {
+                            span.end.new_line();
+                            break;
+                        }
+
+                        span.end.new_col();
+                    }
+
+                    continue;
+                }
+                '\n' => {
+                    span.end.new_line();
+                    continue;
+                }
+                _ if tok.is_whitespace() => {
+                    span.end.new_col();
+                    continue;
+                }
+                _ => return Err(Error::new(ErrorKind::UnrecognizedToken, span, src)),
+            },
+            span,
+        ));
+    }
+
+    Ok(lexemes)
 }
