@@ -20,7 +20,7 @@ impl Location {
 
     pub fn new_line(&mut self) {
         self.line += 1;
-        self.new_col();
+        self.col = 1;
     }
 
     pub fn new_col(&mut self) {
@@ -106,7 +106,7 @@ impl fmt::Display for ErrorKind {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Error<'a> {
     pub span: Span,
-    pub src: Source<'a>,
+    pub src: &'a Source<'a>,
     pub kind: ErrorKind,
 }
 
@@ -117,7 +117,7 @@ impl<'a> fmt::Display for Error<'a> {
 }
 
 impl<'a> Error<'a> {
-    pub fn new(kind: ErrorKind, span: Span, src: Source<'a>) -> Self {
+    pub fn new(kind: ErrorKind, span: Span, src: &'a Source<'a>) -> Self {
         Self { kind, span, src }
     }
 }
@@ -153,15 +153,15 @@ impl Lexeme {
 
 pub type LexemeStream = VecDeque<Lexeme>;
 
-pub fn is_identifier(ch: char) -> bool {
-    ch.is_alphanumeric() || ch == '_'
+pub fn is_identifier(chr: char) -> bool {
+    chr.is_alphanumeric() || chr == '_'
 }
 
-pub fn is_numeric_or_symbol(ch: char) -> bool {
-    ch.is_numeric() || ch == '-' || ch == '+' || ch == '.'
+pub fn is_numeric_or_symbol(chr: char) -> bool {
+    chr.is_numeric() || chr == '-' || chr == '+' || chr == '.'
 }
 
-pub fn lex<'a>(src: Source<'a>) -> Result<'a, LexemeStream> {
+pub fn lex<'a>(src: &'a Source<'a>) -> Result<'a, LexemeStream> {
     let mut lexemes = LexemeStream::default();
     let mut span = Span::default();
     let mut chars = src.chars();
@@ -170,7 +170,7 @@ pub fn lex<'a>(src: Source<'a>) -> Result<'a, LexemeStream> {
         span.begin = span.end;
         span.end.new_col();
 
-        lexemes.push_front(Lexeme::new(
+        lexemes.push_back(Lexeme::new(
             match tok {
                 '=' => LexemeKind::Equal,
                 ',' => LexemeKind::Comma,
@@ -220,15 +220,21 @@ pub fn lex<'a>(src: Source<'a>) -> Result<'a, LexemeStream> {
 
                         chars.next();
                         content.push(chr);
-                        span.end.col += 1;
+                        span.end.new_col();
                     }
 
-                    let err = Error::new(ErrorKind::MalformedNumber, span, src.clone());
-
                     if dot {
-                        LexemeKind::Float(content.parse::<f64>().map_err(|_| err)?)
+                        LexemeKind::Float(
+                            content
+                                .parse::<f64>()
+                                .map_err(|_| Error::new(ErrorKind::MalformedNumber, span, src))?,
+                        )
                     } else {
-                        LexemeKind::Integer(content.parse::<i64>().map_err(|_| err)?)
+                        LexemeKind::Integer(
+                            content
+                                .parse::<i64>()
+                                .map_err(|_| Error::new(ErrorKind::MalformedNumber, span, src))?,
+                        )
                     }
                 }
                 _ if is_identifier(tok) => {
@@ -268,7 +274,6 @@ pub fn lex<'a>(src: Source<'a>) -> Result<'a, LexemeStream> {
                     continue;
                 }
                 _ if tok.is_whitespace() => {
-                    span.end.new_col();
                     continue;
                 }
                 _ => return Err(Error::new(ErrorKind::UnrecognizedToken, span, src)),
