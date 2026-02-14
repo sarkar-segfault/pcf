@@ -77,8 +77,25 @@ impl<'a> Source<'a> {
         self.content.chars().peekable()
     }
 
-    pub fn lines(&self) -> str::Lines<'_> {
-        self.content.lines()
+    pub fn extract_offset(&self, tar: Location) -> usize {
+        let mut loc = Location::default();
+        let mut offset: usize = 0;
+
+        for chr in self.chars() {
+            if loc.line == tar.line && loc.col == tar.col {
+                break;
+            }
+
+            offset += chr.len_utf8();
+
+            if chr == '\n' {
+                loc.new_line();
+            } else {
+                loc.new_col();
+            }
+        }
+
+        offset
     }
 }
 
@@ -112,7 +129,20 @@ pub struct Error<'a> {
 
 impl<'a> fmt::Display for Error<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "[{}{}] {}", self.src.file, self.span, self.kind)
+        write!(
+            f,
+            "[{}{}] {}\n{}",
+            self.src.file,
+            self.span,
+            self.kind,
+            self.src
+                .content
+                .get(
+                    self.src.extract_offset(self.span.begin)
+                        ..self.src.extract_offset(self.span.end)
+                )
+                .unwrap_or("<failed to extract offsets of begin and end>")
+        )
     }
 }
 
@@ -157,10 +187,6 @@ pub fn is_identifier(chr: char) -> bool {
     chr.is_alphanumeric() || chr == '_'
 }
 
-pub fn is_numeric_or_symbol(chr: char) -> bool {
-    chr.is_numeric() || chr == '-' || chr == '+' || chr == '.'
-}
-
 pub fn lex<'a>(src: &'a Source<'a>) -> Result<'a, LexemeStream> {
     let mut lexemes = LexemeStream::default();
     let mut span = Span::default();
@@ -180,26 +206,27 @@ pub fn lex<'a>(src: &'a Source<'a>) -> Result<'a, LexemeStream> {
                 '}' => LexemeKind::RBrace,
                 '"' => {
                     let mut content = String::default();
-                    let mut closed = false;
+                    let mut prev = '\0';
 
                     for chr in chars.by_ref() {
                         span.end.new_col();
 
-                        if chr == '"' {
-                            closed = true;
+                        if chr == '"' && prev != '\\' {
+                            prev = chr;
                             break;
                         }
 
+                        prev = chr;
                         content.push(chr);
                     }
 
-                    if !closed {
+                    if prev != '"' {
                         return Err(Error::new(ErrorKind::UnterminatedString, span, src));
                     }
 
                     LexemeKind::String(content)
                 }
-                _ if is_numeric_or_symbol(tok) => {
+                _ if tok.is_numeric() || tok == '-' || tok == '+' || tok == '.' => {
                     let mut content = String::default();
                     content.push(tok);
 
@@ -263,8 +290,6 @@ pub fn lex<'a>(src: &'a Source<'a>) -> Result<'a, LexemeStream> {
                             span.end.new_line();
                             break;
                         }
-
-                        span.end.new_col();
                     }
 
                     continue;

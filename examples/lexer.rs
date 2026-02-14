@@ -16,8 +16,15 @@ fn main() {
         .next()
         .unwrap_or_else(|| fatal!("expected input filename as second argument"));
 
-    let src = Source::new(&file, std::fs::read_to_string(&file).unwrap());
+    let src = Source::new(
+        &file,
+        std::fs::read_to_string(&file)
+            .unwrap_or_else(|e| fatal!("could not open input filename: {}", e)),
+    );
+    let res = lex(&src);
 
-    let lexemes = lex(src).unwrap_or_else(|e| fatal!("failed to lex input file\n {}", e));
-    println!("{:#?}", lexemes);
+    match res {
+        Ok(lexemes) => println!("{:#?}", lexemes),
+        Err(error) => println!("{}", error),
+    }
 }
