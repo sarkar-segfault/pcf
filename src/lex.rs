@@ -1,158 +1,5 @@
+use crate::utils::*;
 use alloc::{collections::vec_deque::VecDeque, string::String};
-use core::{fmt, str};
-
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
-pub struct Location {
-    pub line: usize,
-    pub col: usize,
-}
-
-impl Default for Location {
-    fn default() -> Self {
-        Self { line: 1, col: 1 }
-    }
-}
-
-impl Location {
-    pub fn new(line: usize, col: usize) -> Self {
-        Self { line, col }
-    }
-
-    pub fn new_line(&mut self) {
-        self.line += 1;
-        self.col = 1;
-    }
-
-    pub fn new_col(&mut self) {
-        self.col += 1;
-    }
-}
-
-#[derive(Default, Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
-pub struct Span {
-    pub begin: Location,
-    pub end: Location,
-}
-
-impl fmt::Display for Span {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if self.begin.line == self.end.line {
-            if self.begin.col == self.end.col {
-                write!(f, ":{}:{}", self.begin.line, self.begin.col)
-            } else {
-                write!(
-                    f,
-                    ":{} {}..{}",
-                    self.begin.line, self.begin.col, self.end.col
-                )
-            }
-        } else {
-            write!(
-                f,
-                " {}:{}..{}:{}",
-                self.begin.line, self.begin.col, self.end.line, self.end.col
-            )
-        }
-    }
-}
-
-impl Span {
-    pub fn new(begin: Location, end: Location) -> Self {
-        Self { begin, end }
-    }
-}
-
-#[derive(Default, Debug, PartialEq, Eq, Clone)]
-pub struct Source<'a> {
-    pub file: &'a str,
-    pub content: String,
-}
-
-impl<'a> Source<'a> {
-    pub fn new(file: &'a str, content: String) -> Self {
-        Self { file, content }
-    }
-
-    pub fn chars(&self) -> core::iter::Peekable<str::Chars<'_>> {
-        self.content.chars().peekable()
-    }
-
-    pub fn extract_offset(&self, tar: Location) -> usize {
-        let mut loc = Location::default();
-        let mut offset: usize = 0;
-
-        for chr in self.chars() {
-            if loc.line == tar.line && loc.col == tar.col {
-                break;
-            }
-
-            offset += chr.len_utf8();
-
-            if chr == '\n' {
-                loc.new_line();
-            } else {
-                loc.new_col();
-            }
-        }
-
-        offset
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ErrorKind {
-    MalformedNumber,
-    UnrecognizedToken,
-    UnterminatedString,
-}
-
-impl fmt::Display for ErrorKind {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "encountered {}",
-            match self {
-                Self::MalformedNumber => "malformed number",
-                Self::UnrecognizedToken => "unrecognized token",
-                Self::UnterminatedString => "unterminated string",
-            }
-        )
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Error<'a> {
-    pub span: Span,
-    pub src: &'a Source<'a>,
-    pub kind: ErrorKind,
-}
-
-impl<'a> fmt::Display for Error<'a> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "[{}{}] {}\n{}",
-            self.src.file,
-            self.span,
-            self.kind,
-            self.src
-                .content
-                .get(
-                    self.src.extract_offset(self.span.begin)
-                        ..self.src.extract_offset(self.span.end)
-                )
-                .unwrap_or("<failed to extract offsets of begin and end>")
-        )
-    }
-}
-
-impl<'a> Error<'a> {
-    pub fn new(kind: ErrorKind, span: Span, src: &'a Source<'a>) -> Self {
-        Self { kind, span, src }
-    }
-}
-
-pub type Result<'a, T> = core::result::Result<T, Error<'a>>;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum LexemeKind {
@@ -221,7 +68,7 @@ pub fn lex<'a>(src: &'a Source<'a>) -> Result<'a, LexemeStream> {
                     }
 
                     if prev != '"' {
-                        return Err(Error::new(ErrorKind::UnterminatedString, span, src));
+                        return Err(Error::lexing(LexingError::UnterminatedString, span, src));
                     }
 
                     LexemeKind::String(content)
@@ -235,7 +82,7 @@ pub fn lex<'a>(src: &'a Source<'a>) -> Result<'a, LexemeStream> {
                     while let Some(&chr) = chars.peek() {
                         if chr == '.' {
                             if dot {
-                                return Err(Error::new(ErrorKind::MalformedNumber, span, src));
+                                return Err(Error::lexing(LexingError::MalformedNumber, span, src));
                             }
 
                             dot = true;
@@ -252,15 +99,15 @@ pub fn lex<'a>(src: &'a Source<'a>) -> Result<'a, LexemeStream> {
 
                     if dot {
                         LexemeKind::Float(
-                            content
-                                .parse::<f64>()
-                                .map_err(|_| Error::new(ErrorKind::MalformedNumber, span, src))?,
+                            content.parse::<f64>().map_err(|_| {
+                                Error::lexing(LexingError::MalformedNumber, span, src)
+                            })?,
                         )
                     } else {
                         LexemeKind::Integer(
-                            content
-                                .parse::<i64>()
-                                .map_err(|_| Error::new(ErrorKind::MalformedNumber, span, src))?,
+                            content.parse::<i64>().map_err(|_| {
+                                Error::lexing(LexingError::MalformedNumber, span, src)
+                            })?,
                         )
                     }
                 }
@@ -301,7 +148,7 @@ pub fn lex<'a>(src: &'a Source<'a>) -> Result<'a, LexemeStream> {
                 _ if tok.is_whitespace() => {
                     continue;
                 }
-                _ => return Err(Error::new(ErrorKind::UnrecognizedToken, span, src)),
+                _ => return Err(Error::lexing(LexingError::UnrecognizedToken, span, src)),
             },
             span,
         ));
