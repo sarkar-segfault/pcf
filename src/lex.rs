@@ -31,7 +31,7 @@ impl Lexeme {
 pub type LexemeStream = VecDeque<Lexeme>;
 
 pub fn is_identifier(chr: char) -> bool {
-    chr.is_alphanumeric() || chr == '_'
+    chr.is_ascii_alphanumeric() || chr == '_'
 }
 
 pub fn lex<'a>(src: &'a Source<'a>) -> Result<'a, LexemeStream> {
@@ -56,7 +56,11 @@ pub fn lex<'a>(src: &'a Source<'a>) -> Result<'a, LexemeStream> {
                     let mut prev = '\0';
 
                     for chr in chars.by_ref() {
-                        span.end.new_col();
+                        if chr == '\n' {
+                            span.end.new_line();
+                        } else {
+                            span.end.new_col();
+                        }
 
                         if chr == '"' && prev != '\\' {
                             prev = chr;
@@ -73,7 +77,7 @@ pub fn lex<'a>(src: &'a Source<'a>) -> Result<'a, LexemeStream> {
 
                     LexemeKind::String(content)
                 }
-                _ if tok.is_numeric() || tok == '-' || tok == '+' || tok == '.' => {
+                _ if tok.is_ascii_numeric() || tok == '-' || tok == '+' || tok == '.' => {
                     let mut content = String::default();
                     content.push(tok);
 
@@ -88,7 +92,7 @@ pub fn lex<'a>(src: &'a Source<'a>) -> Result<'a, LexemeStream> {
                             dot = true;
                         }
 
-                        if !chr.is_numeric() && chr != '.' {
+                        if !chr.is_ascii_numeric() && chr != '.' {
                             break;
                         }
 
