@@ -1,0 +1,20 @@
+[package]
+name = "pcf"
+edition = "2024"
+version = "1.0.0"
+authors = ["sarkar-segfault <adhritsarkar@proton.me>"]
+description = "Pragmatic Configuration Format"
+license = "MIT"
+repository = "https://github.com/sarkar-segfault/pcf"
+homepage = "https://crates.io/crates/pcf"
+documentation = "https://docs.rs/pcf"
+readme = "README.md"
+keywords = ["markup", "config", "format", "parser", "serde"]
+categories = ["parser-implementations", "text-processing", "config", "no-std"]
+
+[features]
+default = ["serde"]
+serde = ["dep:serde"]
+
+[dependencies]
+serde = { version = "1.0.228", optional = true, default-features = false }
